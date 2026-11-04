@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
@@ -7,6 +8,10 @@ SLOTS_PER_ROW = 15
 BASE_HOURS = 2
 BASE_FEE = 50
 EXTRA_HOURLY_FEE = 20
+# shortcut: standard MV and MC series only; add a category-specific pattern for special plates.
+PH_PLATE_PATTERN = re.compile(
+    r"(?:[A-Z]{3}[ -]?[0-9]{2,4}|[0-9]{3}[ -]?[A-Z]{2,3}|[A-Z]{2}[ -]?[0-9]{5})"
+)
 
 root = tk.Tk()
 root.title("Parking System")
@@ -29,11 +34,11 @@ def open_check_in(button, slot_name):
     plate_number.pack()
 
     def clicked_enter():
-        plate_text = plate_number.get().strip()
-        if not plate_text:
+        plate_text = plate_number.get().strip().upper()
+        if not PH_PLATE_PATTERN.fullmatch(plate_text):
             messagebox.showerror(
-                "Plate number required",
-                "Enter a plate number before checking in.",
+                "Invalid plate number",
+                "Use a standard Philippine plate, e.g. ABC 1234, ABC 123, 123 ABC, or AB 12345.",
                 parent=new_window,
             )
             return
