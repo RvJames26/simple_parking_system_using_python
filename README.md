@@ -20,5 +20,7 @@ The fee is P50 for up to two hours, then P20 per additional hour, prorated by ti
 
 ## Notes
 
-- Active parking sessions are kept in memory and are cleared when the app closes.
+- Active parking sessions are saved in `data/active_slots.json` and persist across application restarts.
+- Completed check-outs are archived in daily files (`data/records/YYYY-MM-DD.json`) with running vehicle counts and total revenue.
+- Use the **Daily Summary** button in the header to view today's revenue and completed transactions.
 - “Pay & Exit” clears a slot; the app does not process real payments.
