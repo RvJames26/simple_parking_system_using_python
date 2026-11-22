@@ -2,68 +2,58 @@ import os
 import shutil
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from parking_system import (
-    load_active_slots,
-    log_transaction,
-    save_active_slots,
-    save_json,
-)
+from parking_lot import ParkingLot
 
 
-class TestPersistence(unittest.TestCase):
+class TestParkingLot(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
-        self.active_file = os.path.join(self.test_dir, "active_slots.json")
-        self.records_dir = os.path.join(self.test_dir, "records")
+        self.lot = ParkingLot(data_dir=self.test_dir)
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)
 
-    def test_active_slots_roundtrip(self):
-        entry = datetime(2026, 11, 21, 14, 30, 0)
-        data = {
-            "Slot 1": {"plate": "ABC 1234", "entry_time": entry},
-            "Slot 2": {"plate": "NDB 5432", "entry_time": entry.isoformat()},
-        }
-        save_active_slots(data, path=self.active_file)
-        loaded = load_active_slots(path=self.active_file)
+    def test_check_in_valid_plate(self):
+        record = self.lot.check_in("Slot 1", "ABC 1234")
+        self.assertEqual(record["plate"], "ABC 1234")
+        self.assertTrue(self.lot.is_occupied("Slot 1"))
 
-        self.assertEqual(len(loaded), 2)
-        self.assertEqual(loaded["Slot 1"]["plate"], "ABC 1234")
-        self.assertEqual(loaded["Slot 1"]["entry_time"], entry.isoformat())
-        self.assertEqual(loaded["Slot 2"]["plate"], "NDB 5432")
+    def test_check_in_invalid_plate_raises_error(self):
+        with self.assertRaises(ValueError):
+            self.lot.check_in("Slot 1", "INVALID_PLATE")
 
-    def test_log_transaction_and_daily_totals(self):
-        entry_time = datetime(2026, 11, 21, 10, 0, 0)
-        exit_time = datetime(2026, 11, 21, 13, 0, 0)
+    def test_check_in_occupied_slot_raises_error(self):
+        self.lot.check_in("Slot 1", "ABC 1234")
+        with self.assertRaises(ValueError):
+            self.lot.check_in("Slot 1", "XYZ 5678")
 
-        # First transaction
-        record1 = log_transaction(
-            "Slot 1", "ABC 1234", entry_time, exit_time, 3.0, 70.0, records_dir=self.records_dir
-        )
-        self.assertEqual(record1["total_vehicles"], 1)
-        self.assertEqual(record1["total_revenue"], 70.0)
-        self.assertEqual(len(record1["transactions"]), 1)
+    def test_calculate_bill_and_checkout(self):
+        entry_time = datetime(2026, 11, 22, 8, 0, 0)
+        exit_time = datetime(2026, 11, 22, 11, 0, 0)  # 3 hours parked
 
-        # Second transaction on same day
-        record2 = log_transaction(
-            "Slot 5", "XYZ 9876", entry_time, exit_time, 2.0, 50.0, records_dir=self.records_dir
-        )
-        self.assertEqual(record2["total_vehicles"], 2)
-        self.assertEqual(record2["total_revenue"], 120.0)
-        self.assertEqual(len(record2["transactions"]), 2)
+        self.lot.check_in("Slot 1", "ABC 1234", entry_time=entry_time)
 
-    def test_missing_or_corrupt_active_file(self):
-        # Missing file
-        missing_file = os.path.join(self.test_dir, "nonexistent.json")
-        self.assertEqual(load_active_slots(path=missing_file), {})
+        # Base fee (50) for 2 hours + 1 extra hour (20) = 70.0
+        bill = self.lot.check_out("Slot 1", exit_time=exit_time)
+        self.assertEqual(bill["hours"], 3.0)
+        self.assertEqual(bill["amount"], 70.0)
+        self.assertFalse(self.lot.is_occupied("Slot 1"))
 
-        # Corrupt file
-        with open(missing_file, "w") as f:
-            f.write("{corrupt json...")
-        self.assertEqual(load_active_slots(path=missing_file), {})
+        # Check daily summary
+        summary = self.lot.get_daily_summary(exit_time)
+        self.assertEqual(summary["total_vehicles"], 1)
+        self.assertEqual(summary["total_revenue"], 70.0)
+
+    def test_persistence_reload(self):
+        entry_time = datetime(2026, 11, 22, 8, 0, 0)
+        self.lot.check_in("Slot 5", "NDB 5432", entry_time=entry_time)
+
+        # Create new ParkingLot instance pointing to same directory
+        reloaded_lot = ParkingLot(data_dir=self.test_dir)
+        self.assertTrue(reloaded_lot.is_occupied("Slot 5"))
+        self.assertEqual(reloaded_lot.get_slot("Slot 5")["plate"], "NDB 5432")
 
 
 if __name__ == "__main__":
